@@ -1,0 +1,11 @@
+---
+victoriametrics_host: victoriametrics.artjason.com
+vmetrics_port: 443
+victoriametrics_data_path: /var/lib/vmagent/vmagent-remotewrite-data
+vmagent_config: /etc/vmagent/vmagent.yml
+url_onedrive: https://systemframe-my.sharepoint.com/:u:/g/personal/jason_lopes_systemframe_com_br/ESiEvR8hwYNFgMLTyUpcHYsB-MokzITN5JALGFDklqj4ow?download=1
+tmp_vmagent_dir: /tmp/victoriametrics/app/vmagent
+git_vmagent_repo: https://github.com/VictoriaMetrics/VictoriaMetrics.git
+blackbox_service_active: false
+vmetrics_remotes: 
+  - https:"{{ victoriametrics_host }}:{{ vmetrics_port }}"

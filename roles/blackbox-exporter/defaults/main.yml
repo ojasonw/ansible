@@ -1,0 +1,2 @@
+blackbox_config_path: /etc/blackbox_exporter/blackbox_config.yml
+blackbox_service: false 

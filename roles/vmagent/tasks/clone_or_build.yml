@@ -1,0 +1,58 @@
+- name: Criar diretório /tmp/vmagent
+  file:
+    path: "/tmp/victoriametrics"
+    state: directory
+    mode: '0755'
+    force: true
+
+- block:
+    - name: Verificar se o diretório /tmp/vmagent/ (ARM64)
+      stat:
+        path: "{{ tmp_vmagent_dir }}"
+      register: vmagent_prod_stat
+
+    - name: Verificar se o diretório /tmp/vmagent/vmagent-prod está vazio (ARM64)
+      find:
+        paths: "{{ tmp_vmagent_dir }}"
+        file_type: any
+      register: vmagent_prod_contents
+      when: vmagent_prod_stat.stat.exists
+
+    - name: Clonar repositório VictoriaMetrics (ARM64)
+      git:
+        repo: https://github.com/VictoriaMetrics/VictoriaMetrics.git
+        dest: "/tmp/victoriametrics"
+      when: not vmagent_prod_stat.stat.exists or (vmagent_prod_stat.stat.exists and vmagent_prod_contents.matched == 0)
+
+    - name: Build do vmagent (ARM64)
+      shell: "{{ ansible_env.HOME }}/.asdf/shims/go build ."
+      args:
+        chdir: "/tmp/victoriametrics/app/vmagent"
+        executable: /bin/bash
+  when: ansible_architecture == "aarch64"
+
+- block:
+    - name: Criar diretório /tmp/vmagent para AMD64
+      file:
+        path: "{{ tmp_vmagent_dir }}"
+        state: directory
+        mode: '0755'
+        force: true
+        
+    - name: Verificar se o diretório /tmp/vmagent/vmagent-prod existe (amd64)
+      stat:
+        path: "{{ tmp_vmagent_dir }}"
+      register: vmagent_prod_stat
+
+    - name: Verificar se o diretório /tmp/vmagent/vmagent-prod está vazio (amd64)
+      find:
+        paths: "{{ tmp_vmagent_dir }}"
+        file_type: any
+      register: vmagent_prod_contents
+      when: vmagent_prod_stat.stat.exists
+
+    - name: Baixar arquivo via wget (AMD64)
+      command: >
+        wget --no-check-certificate "{{ url_onedrive }}" -O "{{ tmp_vmagent_dir }}/vmagent"
+      when: not vmagent_prod_stat.stat.exists or (vmagent_prod_stat.stat.exists and vmagent_prod_contents.matched == 0)
+  when: ansible_architecture == "x86_64"

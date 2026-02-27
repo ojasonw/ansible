@@ -1,0 +1,44 @@
+- name: Coletar fatos de serviços (necessário para ansible_facts.services)
+  service_facts:
+
+- name: Testar resolução de DNS para github.com
+  command: getent hosts github.com
+  register: dns_check
+  ignore_errors: true
+  changed_when: false
+
+- block:
+    - name: Garantir DNS funcional (sem systemd-resolved)
+      copy:
+        dest: /etc/resolv.conf
+        content: |
+          nameserver 1.1.1.1
+          nameserver 8.8.8.8
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_service_mgr != "systemd" or
+            (ansible_service_mgr == "systemd" and
+              (ansible_facts.services['systemd-resolved.service'] is not defined or
+              ansible_facts.services['systemd-resolved.service'].state != 'running'))
+
+    - name: Se usar systemd-resolved, configurar DNS
+      copy:
+        dest: /etc/systemd/resolved.conf
+        content: |
+          [Resolve]
+          DNS=1.1.1.1 8.8.8.8
+          FallbackDNS=9.9.9.9 1.0.0.1
+          DNSSEC=no
+      when: ansible_service_mgr == "systemd"
+      notify: restart systemd-resolved
+
+    - name: Substituir mirror problemático no APT
+      replace:
+        path: "{{ item }}"
+        regexp: 'http://no\.archive\.ubuntu\.com/ubuntu'
+        replace: 'http://archive.ubuntu.com/ubuntu'
+      loop:
+        - /etc/apt/sources.list
+      ignore_errors: true
+  when: dns_check.rc != 0

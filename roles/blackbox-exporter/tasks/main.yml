@@ -1,0 +1,14 @@
+- name: Clone and build
+  include_tasks: clone_and_build.yml
+
+- name: Configure BlackBox Exporter
+  include_tasks: configure.yml
+
+- name: Create systemd service for BlackBox Exporter
+  include_tasks: create_systemd.yml
+
+- name: Notify handlers for systemd and services
+  meta: flush_handlers
+
+- name: Start and enable BlackBox service
+  include_tasks: start_and_run_service.yml

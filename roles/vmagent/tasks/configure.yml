@@ -1,0 +1,70 @@
+- name: Create vmagent group
+  group:
+    name: vmagent
+    system: yes
+  become: true
+
+- name: Criar usuário Vmagent
+  user:
+    name: vmagent
+    group: vmagent
+    system: yes
+    home: /var/lib/vmagent
+    shell: /sbin/nologin
+    comment: "VictoriaMetrics Agent System User"
+    create_home: yes
+  become: true
+
+- name: Move vmagent binary to /usr/bin
+  copy:
+    src: "{{ tmp_vmagent_dir }}/vmagent"
+    dest: "/usr/bin/vmagent"
+    mode: '0755'
+    remote_src: true
+  become: true
+
+- name: Create dir /etc/vmagent/
+  file:
+    path: /etc/vmagent
+    state: directory
+    mode: '0755'
+    owner: vmagent
+    group: vmagent
+  become: true
+
+- name: Create VMagent exporter config
+  template:
+    src: vmagent.yml.j2
+    dest: /etc/vmagent/vmagent.yml
+    mode: '0644'
+    owner: vmagent
+    group: vmagent
+  become: true
+  
+- name: Create /var/lib/vmagent/vmagent-remotewrite-data directory
+  file:
+    path: /var/lib/vmagent/vmagent-remotewrite-data
+    state: directory
+    owner: vmagent
+    group: vmagent
+    mode: '0755'
+  become: true
+
+- name: Create vmagent persistent-queue directory
+  file:
+    path: /var/lib/vmagent/vmagent-remotewrite-data/persistent-queue
+    state: directory
+    owner: vmagent
+    group: vmagent
+    mode: '0755'
+  become: true
+
+- name: Set correct permissions for /var/lib/vmagent recursively
+  file:
+    path: /var/lib/vmagent
+    state: directory
+    owner: vmagent
+    group: vmagent
+    mode: '0755'
+    recurse: yes
+  become: true

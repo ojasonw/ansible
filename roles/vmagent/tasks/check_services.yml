@@ -1,0 +1,9 @@
+- name: Check if Blackbox Exporter service is active
+  command: systemctl is-active blackbox-exporter.service
+  register: blackbox_service_status
+  failed_when: false
+  changed_when: false
+
+- name: Set Blackbox Exporter service status fact
+  set_fact:
+    blackbox_service_active: "{{ blackbox_service_status.stdout == 'active' }}"

@@ -1,0 +1,26 @@
+- name: Create blackbox_exporter config directory
+  file:
+    path: /etc/blackbox_exporter
+    state: directory
+    mode: '0755'
+
+- name: Create Blackbox exporter config
+  copy:
+    src: blackbox_config.yml
+    dest: /etc/blackbox_exporter/blackbox_config.yml
+    mode: '0755'
+
+- name: Create blackbox group
+  group:
+    name: blackbox
+    system: yes
+
+- name: Create blackbox user
+  user:
+    name: blackbox
+    group: blackbox
+    system: yes
+    home: /var/lib/blackbox
+    shell: /sbin/nologin
+    comment: "Blackbox Exporter System User"
+    create_home: yes

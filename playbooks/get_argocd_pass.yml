@@ -1,0 +1,12 @@
+- hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Obter a senha inicial do admin do ArgoCD
+      shell: "k3s kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+      register: argocd_admin_password
+      changed_when: false
+
+    - name: Exibir a senha do admin do ArgoCD
+      debug:
+        msg: "Senha inicial do ArgoCD admin: {{ argocd_admin_password.stdout }}"

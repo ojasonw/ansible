@@ -1,0 +1,53 @@
+- name: Ensure deployer user exists with no shell
+  user:
+    name: deployer
+    shell: /bin/bash
+    state: present
+
+- name: Add deployer user to the docker group
+  user:
+    name: deployer
+    groups: docker
+    append: yes
+
+- name: Create .ssh directory for deployer
+  file:
+    path: /home/deployer/.ssh
+    state: directory
+    owner: deployer
+    group: deployer
+    mode: '0700'
+
+- name: Ensure remote_tmp is writable
+  file:
+    path: /tmp/ansible
+    state: directory
+    mode: '1777'
+
+- name: Debug public keys directory
+  debug:
+    msg: "{{ lookup('fileglob', 'files/*.pub') }}"
+
+- name: Add content of public keys to deployer authorized_keys
+  block:
+    - name: Gather list of public key files
+      set_fact:
+        public_keys: "{{ lookup('fileglob', 'files/*.pub').split(',') }}"
+
+    - name: Ensure authorized_keys file exists
+      file:
+        path: /home/deployer/.ssh/authorized_keys
+        state: touch
+        owner: deployer
+        group: deployer
+        mode: '0600'
+
+    - name: Append public key content to authorized_keys
+      lineinfile:
+        path: /home/deployer/.ssh/authorized_keys
+        line: "{{ lookup('file', item) }}"
+        state: present
+        create: yes
+      with_items: "{{ public_keys }}"
+      notify:
+        - Restart SSH

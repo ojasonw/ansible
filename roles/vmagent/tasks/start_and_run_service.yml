@@ -1,0 +1,13 @@
+- name: Habilitar e iniciar o serviço do VMagent
+  systemd:
+    name: vmagent.service
+    daemon_reload: true
+    enabled: true
+    state: restarted
+
+- name: Cleanup install folders
+  file: 
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "/tmp/victoriametrics"

@@ -1,0 +1,7 @@
+- name: Reload systemd
+  command: systemctl daemon-reload
+
+- name: Enabled Blackbox service
+  service:
+    name: blackbox-exporter
+    state: enabled

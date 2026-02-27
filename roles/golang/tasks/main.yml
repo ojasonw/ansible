@@ -1,0 +1,74 @@
+- name: Verify Go installation
+  shell: |
+    set -e
+    command -v go >/dev/null 2>&1 && go version
+  args:
+    executable: /bin/bash
+  register: go_version
+  ignore_errors: yes
+
+- name: Show Go Version
+  debug:
+    msg: "Go is already installed, version: {{ go_version.stdout }}"
+  when: go_version.rc == 0
+
+- name: Install Go using ASDF
+  when: go_version.rc != 0
+  block:
+    - name: Clone asdf repository
+      git:
+        repo: "https://github.com/asdf-vm/asdf.git"
+        dest: "{{ ansible_env.HOME }}/.asdf"
+        version: "v0.14.1"
+        force: true
+
+    # opcional (só pra login interativo). Pode manter.
+    - name: Add asdf to bashrc
+      blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        create: yes
+        marker: "# {mark} ANSIBLE ASDF"
+        block: |
+          . $HOME/.asdf/asdf.sh
+          . $HOME/.asdf/completions/asdf.bash
+
+    - name: Install golang plugin for asdf
+      shell: |
+        set -euo pipefail
+        . "{{ ansible_env.HOME }}/.asdf/asdf.sh"
+        asdf plugin add golang https://github.com/asdf-community/asdf-golang.git || true
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.asdf/bin:{{ ansible_env.HOME }}/.asdf/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    - name: Install Go version 1.23.3 using asdf
+      shell: |
+        set -euo pipefail
+        . "{{ ansible_env.HOME }}/.asdf/asdf.sh"
+        asdf install golang 1.23.3
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.asdf/bin:{{ ansible_env.HOME }}/.asdf/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    - name: Set Go version 1.23.3 globally + reshim
+      shell: |
+        set -euo pipefail
+        . "{{ ansible_env.HOME }}/.asdf/asdf.sh"
+        asdf global golang 1.23.3
+        asdf reshim golang
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.asdf/bin:{{ ansible_env.HOME }}/.asdf/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    - name: Verify Go installation
+      shell: |
+        set -euo pipefail
+        . "{{ ansible_env.HOME }}/.asdf/asdf.sh"
+        go version
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.asdf/bin:{{ ansible_env.HOME }}/.asdf/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

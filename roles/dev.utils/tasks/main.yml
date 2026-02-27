@@ -1,0 +1,17 @@
+- name: Check DNS resolution
+  include_tasks: dns_checker.yml
+  when: ansible_architecture != "aarch64"
+
+- name: Install Apts amd64 or arm64
+  include_tasks: install_apt.yml
+
+- name: Prepare Docker repo
+  include_tasks: docker_repo.yml
+  when: ansible_architecture != "aarch64"
+  
+- name: Flush handlers
+  meta: flush_handlers
+
+- name: Install Helm and YQ
+  include_tasks: helm_and_yq.yml
+  when: helm_install | default(false) or yq_install | default(false)

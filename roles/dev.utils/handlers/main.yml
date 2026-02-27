@@ -1,0 +1,11 @@
+- name: restart systemd-resolved
+  listen: "Restart systemd-resolved"
+  become: true
+  service:
+    name: systemd-resolved
+    state: restarted
+
+- name: systemd daemon-reload
+  listen: "systemd-daemon-reload"
+  become: true
+  command: systemctl daemon-reload

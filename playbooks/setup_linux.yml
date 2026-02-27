@@ -1,0 +1,70 @@
+---
+- name: Install Docker and deploy users
+  hosts: all
+  become: true
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Instalar dependências de monitoramento do host
+      ansible.builtin.apt:
+        name: "{{ monitoring_packages }}"
+        state: present
+      when: monitoring_packages is defined and monitoring_packages | length > 0
+      tags:
+        - monitoring_deps
+        - telegraf
+
+  roles:
+    - role: users
+      tags:
+        - users
+      when: ansible_architecture == "x86_64"
+
+    - role: dev.utils
+      tags:
+        - utils
+
+    - role: geerlingguy.docker
+      tags:
+        - docker 
+      when: ansible_architecture == "x86_64"        
+      vars:
+        docker_packages:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        docker_service_manage: true
+        docker_service_state: started
+        docker_service_enabled: true
+
+    - role: ansible-node-exporter
+      tags:
+        - node_exporter
+  
+    - role: vmagent
+      tags:
+        - vmagent
+
+    - role: golang
+      tags:
+        - golang
+      when: blackbox_service | default(false) | bool
+
+    - role: blackbox-exporter
+      tags:
+        - blackbox_exporter
+      when: blackbox_service | default(false) | bool
+
+  # tasks:
+  #   - name: Setup telegraf
+  #     ansible.builtin.include_role:
+  #       name: telegraf
+  #       apply:
+  #         tags:
+  #           - telegraf
+  #     tags:
+  #       - always
+  #     vars:
+  #       telegraf_setup_helm: false

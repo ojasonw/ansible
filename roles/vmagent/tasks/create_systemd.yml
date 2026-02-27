@@ -1,0 +1,19 @@
+---
+- name: Copy vmagent configuration file
+  template:
+    src: vmagent.yml.j2
+    dest: /etc/vmagent/vmagent.yml
+    owner: vmagent
+    group: vmagent
+    mode: '0644'
+  become: true
+
+- name: Create systemd service for vmagent
+  template:
+    src: vmagent.service.j2
+    dest: /etc/systemd/system/vmagent.service
+    owner: vmagent
+    group: vmagent
+    mode: '0644'
+  notify: Reload systemd
+  become: true

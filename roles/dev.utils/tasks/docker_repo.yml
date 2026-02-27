@@ -1,0 +1,97 @@
+---
+- name: Purge Docker APT conflicts (one-time)
+  become: true
+  block:
+    - name: Remove docker sources
+      file: { path: "{{ item }}", state: absent }
+      loop:
+        - /etc/apt/sources.list.d/docker.list
+        - /etc/apt/sources.list.d/docker-stable.list
+        - /etc/apt/sources.list.d/download_docker_com_ubuntu.list
+      ignore_errors: true
+    - name: Remove docker keyrings
+      file: { path: "{{ item }}", state: absent }
+      loop:
+        - /etc/apt/keyrings/docker.gpg
+        - /etc/apt/keyrings/docker.asc
+      ignore_errors: true
+    - name: apt update
+      apt: { update_cache: yes }
+      when: ansible_os_family == 'Debian'
+
+#Diagnóstico rápido
+- name: Coletar pacotes instalados
+  package_facts:
+    manager: auto
+
+- name: Checar se docker já está instalado
+  set_fact:
+    _docker_instalado: >-
+      {{ ('docker-ce' in (ansible_facts.packages|default({}))) or
+        ('docker.io' in (ansible_facts.packages|default({}))) }}
+
+- name: Verificar se existe unit file do docker
+  stat:
+    path: /lib/systemd/system/docker.service
+  register: docker_unit
+
+#Fallback: preparar repo oficial (alinha com o padrão .asc)
+- name: Ensure keyrings dir
+  become: true
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  when: not _docker_instalado or not docker_unit.stat.exists
+
+- name: Download Docker GPG (ASCII)
+  become: true
+  get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution|lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  when: not _docker_instalado or not docker_unit.stat.exists
+
+- name: Adicionar repo Docker (stable) com signed-by .asc
+  become: true
+  apt_repository:
+    repo: "deb [arch={{ 'amd64' if ansible_architecture in ['x86_64','amd64'] else 'arm64' }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution|lower }} {{ ansible_distribution_release }} stable"
+    filename: docker
+    state: present
+  when: not _docker_instalado or not docker_unit.stat.exists
+
+- name: apt update (docker repo)
+  become: true
+  apt:
+    update_cache: yes
+  when: not _docker_instalado or not docker_unit.stat.exists
+
+#Fallback: instalar pacotes se ainda não estiverem
+- name: Instalar Docker CE (fallback)
+  become: true
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  when: not _docker_instalado or not docker_unit.stat.exists
+
+#Sanity check antes da role
+- name: Recoletar pacotes e checar unit
+  package_facts:
+    manager: auto
+- name: Verificar unit novamente
+  stat:
+    path: /lib/systemd/system/docker.service
+  register: docker_unit_after
+
+- name: Falhar cedo se ainda não há docker.service
+  fail:
+    msg: "Docker não instalado (sem docker.service). Verifique APT/repo."
+  when:
+    - "'docker-ce' not in (ansible_facts.packages|default({}))"
+    - "'docker.io' not in (ansible_facts.packages|default({}))"
+    - not docker_unit_after.stat.exists

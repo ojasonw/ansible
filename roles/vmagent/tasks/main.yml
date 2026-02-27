@@ -1,0 +1,18 @@
+- name: Clone or build for any Arch
+  include_tasks: clone_or_build.yml
+  
+- name: Check blackbox and register arch
+  include_tasks: check_services.yml
+
+
+- name: Configure Vmagent
+  include_tasks: configure.yml
+
+- name: Create systemd service for Vmagent
+  include_tasks: create_systemd.yml
+
+- name: Notify handlers for systemd and services
+  meta: flush_handlers
+
+- name: Start and enable Telegraf service
+  include_tasks: start_and_run_service.yml

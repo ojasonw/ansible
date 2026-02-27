@@ -1,0 +1,18 @@
+users:
+- { name: jason, group: admin }
+# - { name: PLACEHOLDER, group: developer }
+
+groups_:
+  sudo: 
+  admin:
+    - sudo
+    - admin
+    - docker
+    - developer
+  developer:
+    - developer
+    - docker
+  guest:
+    - guest
+  docker: 
+    - docker

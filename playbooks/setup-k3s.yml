@@ -1,0 +1,231 @@
+---
+- name: "Configura o Cluster K3s e Argo CD (Execução Remota)"
+  hosts: k3s_cluster
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    remote_kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+    infisical_client_id: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          33643233346633643135343734633337653733366437643132356137303733653434633938633763
+          3833366236636431346138656233396163663230353938330a336365623366306564303964303731
+          30373330376230393963376466326531386630303064336330336430623633323538663965323661
+          6534666464663665640a656438336661316439333830333830333036643639346532383133396166
+          37336133356333653231333864356132343034346532383838323239303732366162393832386263
+          3536393634306163663239373536326536346238613430643331
+
+    infisical_client_secret: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          33386462393438356537326339613062346237363065643032306464333662393734366434393037
+          6438666462656663386233646466326439303039316338310a616332643637343634646365663533
+          64656563396532363062613239613961316132653966323639626533356538303862356334663261
+          3363613839313164360a613733613837373635386266343461643733383735313461663539396466
+          34313536653866616338636132626539333931363232343261626536386435616565623466613638
+          39626365616333613833636364316564663838383765316331633164376561626562376539653466
+          38353136313338373637633231633864396230393333666432376135663266353735363466316637
+          31636664383333623338
+    argocd_version: "v3.3.0"
+    # Repo do platform-gitops (fonte única da verdade para instalação do ArgoCD)
+    platform_gitops_repo: "https://github.com/ojasonw/platform-gitops.git"
+
+  tasks:
+    - name: "Instala K3s no master"
+      ansible.builtin.shell: >
+        curl -sfL https://get.k3s.io | 
+        INSTALL_K3S_VERSION={{ k3s_version }} 
+        INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644" 
+        sh -
+      args:
+        creates: "{{ remote_kubeconfig }}"
+
+    - name: "Cria o namespace do Argo CD (forma idempotente)"
+      ansible.builtin.shell: "printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: argocd' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -"
+      changed_when: false
+
+    - name: "Clona o repo no Gh para bootstrap do ArgoCD via kustomize"
+      ansible.builtin.git:
+        repo: "{{ platform_gitops_repo }}"
+        dest: /tmp/platform-gitops
+        version: main
+        force: yes
+
+    - name: "Instala o ArgoCD via kustomize (versão pinada + fix copyutil ln -sf)"
+      # IMPORTANTE: usa argocd/self-manage que pina a versão em argocd_version
+      # e aplica o patch que corrige o bug do init container copyutil (ln -sf).
+      # NÃO usar stable/manifests/install.yaml pois não tem versão pinada e não tem o patch.
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        apply --server-side --force-conflicts
+        -n argocd
+        -k /tmp/platform-gitops/argocd/self-manage
+      changed_when: true
+
+    - name: "Aguarda o serviço 'argocd-server' ser criado"
+      ansible.builtin.shell: "kubectl --kubeconfig {{ remote_kubeconfig }} -n argocd get svc argocd-server"
+      register: service_status
+      until: service_status.rc == 0
+      retries: 10
+      delay: 15
+      changed_when: false
+
+    - name: "Adiciona '--insecure' ao argocd-server (desativa TLS interno)"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }} -n argocd
+        patch deployment argocd-server --type=json
+        -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--insecure"}]'
+      changed_when: true
+
+    - name: "Aguarda o rollout do argocd-server após patch"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }} -n argocd
+        rollout status deployment/argocd-server --timeout=120s
+      register: argocd_rollout
+      until: argocd_rollout.rc == 0
+      retries: 5
+      delay: 10
+      changed_when: false
+
+    - name: "Expõe o Argo CD Server com um NodePort na porta 30080"
+      ansible.builtin.shell: "kubectl --kubeconfig {{ remote_kubeconfig }} -n argocd patch svc argocd-server -p '{\"spec\": {\"type\": \"NodePort\", \"ports\": [{\"port\": 443, \"name\": \"https\", \"nodePort\": 30080}]}}'"
+      changed_when: true
+
+    - name: "Bootstrap da root-app (App of Apps) — ponto de entrada do GitOps"
+      # Após isso o ArgoCD assume o controle e gerencia tudo via repo Gh,
+      # incluindo a si mesmo via Application argocd-self (argocd/infra/argocd-self.yaml).
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+        apiVersion: argoproj.io/v1alpha1
+        kind: Application
+        metadata:
+          name: root-gitops-app
+          namespace: argocd
+          finalizers:
+            - resources-finalizer.argocd.argoproj.io
+        spec:
+          project: default
+          source:
+            repoURL: '{{ platform_gitops_repo }}'
+            targetRevision: main
+            path: argocd
+            directory:
+              recurse: true
+              include: 'infra/*.yaml'
+          destination:
+            server: 'https://kubernetes.default.svc'
+            namespace: argocd
+          syncPolicy:
+            automated:
+              prune: true
+              selfHeal: true
+            syncOptions:
+              - CreateNamespace=true
+        EOF
+      changed_when: true
+      
+    - name: "Aguarda o secret da senha do Argo CD ser criado"
+      ansible.builtin.shell: "kubectl --kubeconfig {{ remote_kubeconfig }} -n argocd get secret argocd-initial-admin-secret"
+      register: secret_status
+      until: secret_status.rc == 0
+      retries: 10
+      delay: 15
+      changed_when: false
+
+    - name: "Obtém, decodifica e exibe a senha do Argo CD"
+      ansible.builtin.shell: "kubectl --kubeconfig {{ remote_kubeconfig }} -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+      changed_when: false
+      register: argocd_password_output
+
+    - name: "Exibe a senha inicial do Argo CD"
+      ansible.builtin.debug:
+        msg:
+          - "================================================================"
+          - " Senha do Argo CD (usuário 'admin'):"
+          - " {{ argocd_password_output.stdout }}"
+          - "================================================================"
+
+    # ── Ingress Nginx Controller ──────────────────────────────────────
+    - name: "Download ingress-nginx manifest (baremetal) to VM"
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.7.1/deploy/static/provider/baremetal/deploy.yaml"
+        dest: "/tmp/ingress-nginx-deploy.yaml"
+        force: no
+
+    - name: "Deploy ingress-nginx controller"
+      ansible.builtin.shell: "kubectl --kubeconfig {{ remote_kubeconfig }} apply -f /tmp/ingress-nginx-deploy.yaml"
+      changed_when: true
+
+    - name: "Aguarda o deployment do ingress-nginx-controller ficar disponível"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }} -n ingress-nginx
+        rollout status deployment/ingress-nginx-controller --timeout=120s
+      register: nginx_rollout
+      until: nginx_rollout.rc == 0
+      retries: 5
+      delay: 10
+      changed_when: false
+
+    - name: "Cria o Service LoadBalancer com externalTrafficPolicy: Local"
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ingress-nginx-controller-loadbalancer
+          namespace: ingress-nginx
+        spec:
+          selector:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: ingress-nginx
+            app.kubernetes.io/name: ingress-nginx
+          ports:
+          - name: http
+            port: 80
+            protocol: TCP
+            targetPort: 80
+          - name: https
+            port: 443
+            protocol: TCP
+            targetPort: 443
+          type: LoadBalancer
+          externalTrafficPolicy: Local
+        EOF
+      changed_when: true
+
+    - name: "Patch ingress-nginx-controller para 1 réplica"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }} -n ingress-nginx
+        scale deployment ingress-nginx-controller --replicas=1
+      changed_when: true
+
+    - name: "Remove ValidatingWebhookConfiguration do ingress-nginx"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        delete validatingwebhookconfiguration ingress-nginx-admission --ignore-not-found
+      changed_when: true
+
+    - name: "Cria namespace external-secrets (idempotente)"
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: external-secrets
+        EOF
+      changed_when: false
+
+    - name: "Bootstrap Secret do Infisical (clientId/clientSecret) no cluster"
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: infisical-universal-auth
+          namespace: external-secrets
+        type: Opaque
+        stringData:
+          clientId: "{{ infisical_client_id }}"
+          clientSecret: "{{ infisical_client_secret }}"
+        EOF
+      no_log: true
+      changed_when: false

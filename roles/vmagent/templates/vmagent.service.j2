@@ -1,0 +1,16 @@
+[Unit]
+Description=VMagent daemon
+After=network.target
+
+[Service]
+User=vmagent
+Group=vmagent
+Type=simple
+ExecStart=/usr/bin/vmagent --promscrape.config={{ vmagent_config }} \
+  --remoteWrite.url={{ vmetrics_remotes }} \
+  --remoteWrite.tmpDataPath={{ victoriametrics_data_path }}
+
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

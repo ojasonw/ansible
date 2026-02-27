@@ -1,0 +1,7 @@
+- name: Reload systemd
+  command: systemctl daemon-reload
+
+- name: Enabled Vmagent
+  service:
+    name: vmagent
+    state: enabled

@@ -1,0 +1,13 @@
+- name: Habilitar e iniciar o serviço Blackbox Exporter
+  systemd:
+    name: blackbox-exporter.service
+    daemon_reload: true
+    enabled: true
+    state: restarted
+
+- name: Cleanup install folders
+  file: 
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "/tmp/blackbox_exporter"

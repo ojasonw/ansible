@@ -1,0 +1,58 @@
+---
+- name: Verificar se o yq já está instalado
+  ansible.builtin.stat:
+    path: /usr/local/bin/yq
+  register: yq_instalado
+  delegate_to: localhost
+  become: false
+  ignore_errors: true
+
+- name: Instalar yq
+  block:
+    - name: Download do binário do yq
+      become: true
+      ansible.builtin.get_url:
+        url: "https://github.com/mikefarah/yq/releases/download/v4.13.4/yq_linux_amd64"
+        dest: "/usr/local/bin/yq"
+        mode: '0755'
+        force: yes
+      delegate_to: localhost
+  when: not yq_instalado.stat.exists
+
+- name: Verificar se o helm já está instalado
+  ansible.builtin.stat:
+    path: /usr/local/bin/helm
+  register: helm_instalado
+  delegate_to: localhost
+  ignore_errors: true
+
+- name: Instalar helm
+  block:
+    - name: Download do binário do helm
+      ansible.builtin.get_url:
+        url: "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz"
+        dest: "/tmp/helm.tar.gz"
+        force: yes
+      delegate_to: localhost
+
+    - name: Extrair o binário do helm
+      ansible.builtin.unarchive:
+        src: "/tmp/helm.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+      delegate_to: localhost
+
+    - name: Mover o binário do helm para /usr/local/bin
+      become: true
+      ansible.builtin.copy:
+        src: "/tmp/linux-amd64/helm"
+        dest: "/usr/local/bin/helm"
+        mode: '0755'
+      delegate_to: localhost
+
+    - name: Limpar arquivos temporários
+      ansible.builtin.file:
+        path: "/tmp/helm.tar.gz"
+        state: absent
+      delegate_to: localhost
+  when: not helm_instalado.stat.exists
