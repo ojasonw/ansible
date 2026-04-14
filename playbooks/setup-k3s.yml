@@ -229,3 +229,32 @@
         EOF
       no_log: true
       changed_when: false
+
+    - name: "Bootstrap ClusterSecretStore infisical-dev (apenas ambiente dev)"
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+        apiVersion: external-secrets.io/v1
+        kind: ClusterSecretStore
+        metadata:
+          name: infisical-dev
+        spec:
+          provider:
+            infisical:
+              hostAPI: https://us.infisical.com
+              auth:
+                universalAuthCredentials:
+                  clientId:
+                    name: infisical-universal-auth
+                    namespace: external-secrets
+                    key: clientId
+                  clientSecret:
+                    name: infisical-universal-auth
+                    namespace: external-secrets
+                    key: clientSecret
+              secretsScope:
+                projectSlug: "externalsecrets-i-rq2"
+                environmentSlug: "dev"
+                secretsPath: "/joga-together-dev"
+        EOF
+      changed_when: false
+      when: environment == 'dev'
