@@ -1,6 +1,6 @@
 ---
 - name: "Configura o Cluster K3s e Argo CD (Execução Remota)"
-  hosts: k3s_cluster
+  hosts: all
   become: yes
   gather_facts: yes
   
@@ -25,6 +25,7 @@
           39626365616333613833636364316564663838383765316331633164376561626562376539653466
           38353136313338373637633231633864396230393333666432376135663266353735363466316637
           31636664383333623338
+    k3s_version: "v1.30.0+k3s1"
     argocd_version: "v3.3.0"
     # Repo do platform-gitops (fonte única da verdade para instalação do ArgoCD)
     platform_gitops_repo: "https://github.com/ojasonw/platform-gitops.git"
@@ -43,22 +44,32 @@
       ansible.builtin.shell: "printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: argocd' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -"
       changed_when: false
 
-    - name: "Clona o repo no Gh para bootstrap do ArgoCD via kustomize"
-      ansible.builtin.git:
-        repo: "{{ platform_gitops_repo }}"
-        dest: /tmp/platform-gitops
-        version: main
+    - name: "Cria /tmp/platform-gitops"
+      ansible.builtin.file:
+        path: /tmp/platform-gitops
+        state: directory
+        mode: "0755"
+
+    - name: "Baixa tarball do platform-gitops (main)"
+      ansible.builtin.get_url:
+        url: "{{ platform_gitops_repo | regex_replace('\\.git$', '') }}/archive/refs/heads/main.tar.gz"
+        dest: /tmp/platform-gitops.tar.gz
         force: yes
 
-    - name: "Instala o ArgoCD via kustomize (versão pinada + fix copyutil ln -sf)"
-      # IMPORTANTE: usa argocd/self-manage que pina a versão em argocd_version
-      # e aplica o patch que corrige o bug do init container copyutil (ln -sf).
-      # NÃO usar stable/manifests/install.yaml pois não tem versão pinada e não tem o patch.
+    - name: "Extrai platform-gitops para /tmp/platform-gitops"
+      ansible.builtin.unarchive:
+        src: /tmp/platform-gitops.tar.gz
+        dest: /tmp/platform-gitops
+        remote_src: yes
+        extra_opts: ["--strip-components=1"]
+        creates: /tmp/platform-gitops/argocd
+
+    - name: "Instala o ArgoCD via manifest pinado ({{ argocd_version }})"
       ansible.builtin.shell: >
         kubectl --kubeconfig {{ remote_kubeconfig }}
         apply --server-side --force-conflicts
         -n argocd
-        -k /tmp/platform-gitops/argocd/self-manage
+        -f https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml
       changed_when: true
 
     - name: "Aguarda o serviço 'argocd-server' ser criado"
