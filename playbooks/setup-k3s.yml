@@ -1,6 +1,11 @@
 ---
+# Uso:
+#   Master:  ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml
+#   Worker:  ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-dev
+
+# ── Play 1: K3s master + ArgoCD ──────────────────────────────────────
 - name: "Configura o Cluster K3s e Argo CD (Execução Remota)"
-  hosts: all
+  hosts: CORE-K3S
   become: yes
   gather_facts: yes
   
@@ -27,8 +32,7 @@
           31636664383333623338
     k3s_version: "v1.30.0+k3s1"
     argocd_version: "v3.3.0"
-    # Repo do platform-gitops (fonte única da verdade para instalação do ArgoCD)
-    platform_gitops_repo: "https://github.com/ojasonw/platform-gitops.git"
+    homelab_gitops_repo: "https://github.com/ojasonw/homelab-gitops.git"
 
   tasks:
     - name: "Instala K3s no master"
@@ -102,26 +106,23 @@
       changed_when: true
 
     - name: "Bootstrap da root-app (App of Apps) — ponto de entrada do GitOps"
-      # Após isso o ArgoCD assume o controle e gerencia tudo via repo Gh,
-      # incluindo a si mesmo via Application argocd-self (argocd/infra/argocd-self.yaml).
       ansible.builtin.shell: |
         cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
         apiVersion: argoproj.io/v1alpha1
         kind: Application
         metadata:
-          name: root-gitops-app
+          name: root-app
           namespace: argocd
           finalizers:
             - resources-finalizer.argocd.argoproj.io
         spec:
           project: default
           source:
-            repoURL: '{{ platform_gitops_repo }}'
+            repoURL: '{{ homelab_gitops_repo }}'
             targetRevision: main
-            path: argocd
+            path: nodes/core-k3s/apps
             directory:
-              recurse: true
-              include: 'infra/*.yaml'
+              recurse: false
           destination:
             server: 'https://kubernetes.default.svc'
             namespace: argocd
@@ -269,3 +270,100 @@
         EOF
       changed_when: false
       when: environment == 'dev'
+
+# ── Play 2: k3s standalone + ArgoCD em nova VM ───────────────────────
+# Cada VM tem seu próprio cluster isolado, sem relação com CORE-K3S.
+# ArgoCD aponta para nodes/{{ target }}/apps/ no homelab-gitops.
+#
+# Uso: ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-monitoring
+- name: "Instala k3s standalone + ArgoCD em nova VM"
+  hosts: "{{ target | default([]) }}"
+  become: true
+  gather_facts: true
+  vars:
+    remote_kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+    k3s_version: "v1.30.0+k3s1"
+    argocd_version: "v3.3.0"
+    homelab_gitops_repo: "https://github.com/ojasonw/homelab-gitops.git"
+
+  tasks:
+    - name: "Instala k3s standalone"
+      ansible.builtin.shell: >
+        curl -sfL https://get.k3s.io |
+        INSTALL_K3S_VERSION={{ k3s_version }}
+        INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644"
+        sh -
+      args:
+        creates: "{{ remote_kubeconfig }}"
+
+    - name: "Aguarda k3s ficar pronto"
+      ansible.builtin.shell: "kubectl --kubeconfig {{ remote_kubeconfig }} get nodes"
+      register: nodes_ready
+      until: nodes_ready.rc == 0
+      retries: 10
+      delay: 10
+      changed_when: false
+
+    - name: "Instala ArgoCD"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        apply --server-side --force-conflicts
+        -n argocd
+        -f https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml
+      changed_when: true
+
+    - name: "Aguarda argocd-server ficar disponível"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        -n argocd rollout status deployment/argocd-server --timeout=120s
+      register: argocd_rollout
+      until: argocd_rollout.rc == 0
+      retries: 5
+      delay: 15
+      changed_when: false
+
+    - name: "Bootstrap root-app apontando para nodes/{{ inventory_hostname }}/apps/"
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+        apiVersion: argoproj.io/v1alpha1
+        kind: Application
+        metadata:
+          name: root-app
+          namespace: argocd
+          finalizers:
+            - resources-finalizer.argocd.argoproj.io
+        spec:
+          project: default
+          source:
+            repoURL: '{{ homelab_gitops_repo }}'
+            targetRevision: main
+            path: nodes/{{ inventory_hostname }}/apps
+            directory:
+              recurse: false
+          destination:
+            server: https://kubernetes.default.svc
+            namespace: argocd
+          syncPolicy:
+            automated:
+              prune: true
+              selfHeal: true
+            syncOptions:
+              - CreateNamespace=true
+        EOF
+      changed_when: true
+
+    - name: "Obtém senha inicial do ArgoCD"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        -n argocd get secret argocd-initial-admin-secret
+        -o jsonpath='{.data.password}' | base64 -d
+      register: argocd_password
+      changed_when: false
+
+    - name: "Exibe senha do ArgoCD"
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - " ArgoCD em {{ inventory_hostname }}"
+          - " Senha (admin): {{ argocd_password.stdout }}"
+          - "========================================"

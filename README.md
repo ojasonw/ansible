@@ -1,70 +1,84 @@
-# Automação Ansible
-Playbooks para provisionar hosts Linux, instalar Docker, levantar um cluster K3s com Argo CD e habilitar componentes básicos de observabilidade entre outras automações.
+# ansible
 
-## Estruturas Exemplos
-- `inventory/hosts.yml` – inventário em YAML.
-- `playbooks/setup_linux.yml` – prepara servidores Linux (Docker, usuários, utilitários e exporters).
-- `playbooks/setup-k3s.yml` – instala K3s, Argo CD, ingress-nginx e secrets do Infisical.
-- `playbooks/get_argocd_pass.yml` – exibe a senha inicial do Argo CD.
-- `roles/` – coleção de roles usadas pelos playbooks.
+Playbooks para provisionar hosts Linux e bootstrapar clusters k3s + ArgoCD isolados por VM.
 
-## Pré‑requisitos
-- Ansible 2.15+ na máquina de controle.
-- Acesso SSH e permissão de `become` nos hosts.
-- Python disponível nos alvos Linux; acesso à internet para pacotes e manifests.
-- Para conteúdo cifrado: senha do Vault (`--ask-vault-pass` ou `ANSIBLE_VAULT_PASSWORD_FILE`).
+## Estrutura
 
-## Inventário (modelo)
-Adapte o inventário ao seu ambiente. Exemplo genérico:
+```
+ansible/
+├── inventory/hosts.yml       # hosts do homelab
+├── playbooks/
+│   ├── setup_linux.yml       # Docker, users, node-exporter, vmagent
+│   ├── setup-k3s.yml         # k3s standalone + ArgoCD + bootstrap GitOps
+│   └── get_argocd_pass.yml   # exibe senha inicial do ArgoCD
+└── roles/                    # roles usadas pelos playbooks
+```
+
+## Pré-requisitos
+
+- Ansible 2.15+
+- Acesso SSH com `become` nos hosts
+- Para conteúdo cifrado: `--ask-vault-pass` ou `.vault_system_pass`
+
+## Inventário
+
+Edite `inventory/hosts.yml` adicionando o IP da VM após criação via Terraform:
 
 ```yaml
 all:
-  children:
-    k3s_cluster:
-      hosts:
-        k3s-master-1:
-          ansible_host: 10.0.0.10
-          ansible_user: admin
-    linux_nodes:
-      hosts:
-        app-node-1:
-          ansible_host: 10.0.0.20
-          ansible_user: admin
+  vars:
+    k3s_master: CORE-K3S
+  hosts:
+    CORE-K3S:
+      ansible_host: 192.168.15.92
+      ansible_user: homelab
+    homelab-monitoring:
+      ansible_host: 192.168.15.XXX  # atualizar após terraform apply
+      ansible_user: homelab
 ```
 
-## Uso rápido
-1) Verificar acesso SSH:
+## Uso
+
+### 1. Verificar conectividade SSH
 ```bash
 ansible -i inventory/hosts.yml all -m ping
 ```
 
-2) Preparar hosts Linux:
+### 2. Provisionar host Linux (Docker, users, exporters)
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/setup_linux.yml \
-  -l linux_nodes --ask-become-pass [--ask-vault-pass]
+  -l <host> --ask-become-pass
 ```
-Variáveis úteis:
-- `monitoring_packages`: lista adicional de pacotes de monitoramento.
-- `blackbox_service`: `true` para incluir blackbox-exporter e Go.
 
-3) Instalar K3s + Argo CD:
+Tags disponíveis: `users`, `utils`, `docker`, `node_exporter`, `vmagent`, `golang`, `blackbox_exporter`
+
+### 3. Bootstrapar k3s + ArgoCD
+
+Cada VM recebe seu próprio cluster k3s isolado. O ArgoCD é apontado para `nodes/<vm>/apps/` no `homelab-gitops`.
+
+**CORE-K3S** (cluster principal, inclui ingress-nginx e Infisical):
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
-  -l k3s_cluster -e k3s_version=<versao_k3s> --ask-vault-pass
+ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml --ask-vault-pass
 ```
-Variáveis ajustáveis:
-- `k3s_version`: versão do K3s a instalar (ex.: `v1.29.4+k3s1`).
-- `argocd_version`: versão do Argo CD.
-- `platform_gitops_repo`: repositório Git usado para bootstrap da root-app.
 
-4) Obter senha inicial do Argo CD:
+**Nova VM** (cluster standalone simples):
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/get_argocd_pass.yml -l k3s_cluster
+ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-monitoring
+ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-dev
 ```
 
-## Tags
-Principais tags disponíveis: `users`, `utils`, `docker`, `node_exporter`, `vmagent`, `golang`, `blackbox_exporter`, `monitoring_deps`.  
-Use `--tags` ou `--skip-tags` para execuções parciais.
+Após o bootstrap, o ArgoCD da VM lê `nodes/<vm>/apps/` do `homelab-gitops` e sincroniza os serviços automaticamente.
 
-## Licença
-MIT
+### 4. Obter senha do ArgoCD
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/get_argocd_pass.yml -l <host>
+```
+
+## Variáveis principais (`setup-k3s.yml`)
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `k3s_version` | `v1.30.0+k3s1` | Versão do k3s |
+| `argocd_version` | `v3.3.0` | Versão do ArgoCD |
+| `homelab_gitops_repo` | `ojasonw/homelab-gitops` | Repo GitOps fonte de verdade |
+| `target` | — | VM alvo para novo cluster (Play 2) |
