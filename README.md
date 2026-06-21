@@ -26,10 +26,8 @@ Edite `inventory/hosts.yml` adicionando o IP da VM após criação via Terraform
 
 ```yaml
 all:
-  vars:
-    k3s_master: CORE-K3S
   hosts:
-    CORE-K3S:
+    core-k3s:
       ansible_host: 192.168.15.92
       ansible_user: homelab
     homelab-monitoring:
@@ -56,15 +54,17 @@ Tags disponíveis: `users`, `utils`, `docker`, `node_exporter`, `vmagent`, `gola
 
 Cada VM recebe seu próprio cluster k3s isolado. O ArgoCD é apontado para `nodes/<vm>/apps/` no `homelab-gitops`.
 
-**CORE-K3S** (cluster principal, inclui ingress-nginx e Infisical):
-```bash
-ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml --ask-vault-pass
-```
+`-e target` é **obrigatório** — não há default. Especifique sempre o host alvo:
 
-**Nova VM** (cluster standalone simples):
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-monitoring
-ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-dev
+ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
+  -e target=core-k3s --ask-vault-pass
+
+ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
+  -e target=homelab-monitoring
+
+ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
+  -e target=homelab-dev
 ```
 
 Após o bootstrap, o ArgoCD da VM lê `nodes/<vm>/apps/` do `homelab-gitops` e sincroniza os serviços automaticamente.
@@ -76,9 +76,9 @@ ansible-playbook -i inventory/hosts.yml playbooks/get_argocd_pass.yml -l <host>
 
 ## Variáveis principais (`setup-k3s.yml`)
 
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `k3s_version` | `v1.30.0+k3s1` | Versão do k3s |
-| `argocd_version` | `v3.3.0` | Versão do ArgoCD |
-| `homelab_gitops_repo` | `ojasonw/homelab-gitops` | Repo GitOps fonte de verdade |
-| `target` | — | VM alvo para novo cluster (Play 2) |
+| Variável | Descrição |
+|----------|-----------|
+| `target` | **Obrigatório.** Nome do host no inventário (ex: `core-k3s`, `homelab-monitoring`) |
+| `k3s_version` | Versão do k3s (padrão: `v1.30.0+k3s1`) |
+| `argocd_version` | Versão do ArgoCD (padrão: `v3.3.0`) |
+| `homelab_gitops_repo` | Repo GitOps fonte de verdade |
