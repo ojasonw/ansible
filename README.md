@@ -22,7 +22,7 @@ ansible/
 
 ## Inventário
 
-Edite `inventory/hosts.yml` adicionando o IP da VM após criação via Terraform:
+Hosts ativos em `inventory/hosts.yml`:
 
 ```yaml
 all:
@@ -30,10 +30,18 @@ all:
     core-k3s:
       ansible_host: 192.168.15.92
       ansible_user: homelab
-    homelab-monitoring:
-      ansible_host: 192.168.15.XXX  # atualizar após terraform apply
-      ansible_user: homelab
+    monitoring:
+      ansible_host: 192.168.15.201
+      ansible_user: ubuntu
+    dev:
+      ansible_host: 192.168.15.202
+      ansible_user: ubuntu
+    homolog:
+      ansible_host: 192.168.15.203
+      ansible_user: ubuntu
 ```
+
+> `monitoring`, `dev` e `homolog` são VMs provisionadas via Terraform. O `ansible_user` é `ubuntu` (criado pelo cloud-init).
 
 ## Uso
 
@@ -58,13 +66,13 @@ Cada VM recebe seu próprio cluster k3s isolado. O ArgoCD é apontado para `node
 
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
-  -e target=core-k3s --ask-vault-pass
+  -e target=monitoring --ask-vault-pass
 
 ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
-  -e target=homelab-monitoring
+  -e target=dev --ask-vault-pass
 
 ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml \
-  -e target=homelab-dev
+  -e target=homolog --ask-vault-pass
 ```
 
 Após o bootstrap, o ArgoCD da VM lê `nodes/<vm>/apps/` do `homelab-gitops` e sincroniza os serviços automaticamente.
@@ -78,7 +86,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/get_argocd_pass.yml -l <host>
 
 | Variável | Descrição |
 |----------|-----------|
-| `target` | **Obrigatório.** Nome do host no inventário (ex: `core-k3s`, `homelab-monitoring`) |
+| `target` | **Obrigatório.** Nome do host no inventário (ex: `monitoring`, `dev`, `homolog`) |
 | `k3s_version` | Versão do k3s (padrão: `v1.30.0+k3s1`) |
 | `argocd_version` | Versão do ArgoCD (padrão: `v3.3.0`) |
 | `homelab_gitops_repo` | Repo GitOps fonte de verdade |
