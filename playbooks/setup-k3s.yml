@@ -49,6 +49,13 @@
         creates: "{{ remote_kubeconfig }}"
 
     # ── ArgoCD ───────────────────────────────────────────────────────────
+    - name: "Cria namespace argocd"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        create namespace argocd --dry-run=client -o yaml |
+        kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+      changed_when: false
+
     - name: "Instala ArgoCD"
       ansible.builtin.shell: >
         kubectl --kubeconfig {{ remote_kubeconfig }}
@@ -182,6 +189,13 @@
       changed_when: true
 
     # ── Infisical ─────────────────────────────────────────────────────────
+    - name: "Cria namespace external-secrets"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        create namespace external-secrets --dry-run=client -o yaml |
+        kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
+      changed_when: false
+
     - name: "Bootstrap Secret Infisical"
       ansible.builtin.shell: |
         cat <<'EOF' | kubectl --kubeconfig {{ remote_kubeconfig }} apply -f -
@@ -196,6 +210,16 @@
           clientSecret: "{{ infisical_client_secret }}"
         EOF
       no_log: true
+      changed_when: false
+
+    - name: "Aguarda CRD ClusterSecretStore (ArgoCD sync)"
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ remote_kubeconfig }}
+        get crd clustersecretstores.external-secrets.io
+      register: crd_check
+      until: crd_check.rc == 0
+      retries: 30
+      delay: 15
       changed_when: false
 
     - name: "Bootstrap ClusterSecretStore Infisical"
