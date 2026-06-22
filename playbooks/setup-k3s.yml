@@ -2,9 +2,9 @@
 # Instala k3s standalone + ArgoCD e bootstrapa GitOps para qualquer VM.
 #
 # Uso:
-#   ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=core-k3s
-#   ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-monitoring
-#   ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homelab-dev
+#   ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=monitoring
+#   ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=dev
+#   ansible-playbook -i inventory/hosts.yml playbooks/setup-k3s.yml -e target=homolog
 
 - name: "k3s + ArgoCD bootstrap"
   hosts: "{{ target }}"
